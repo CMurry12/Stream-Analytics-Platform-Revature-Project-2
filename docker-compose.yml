@@ -72,6 +72,28 @@ services:
       - streamflow-network
 
   # =============================================================================
+  # POSTGRES (Airflow Metadata Database)
+  # =============================================================================
+  postgres:
+    image: postgres:16
+    container_name: streamflow-postgres
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: airflow
+      POSTGRES_PASSWORD: airflow
+      POSTGRES_DB: airflow
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U airflow -d airflow" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - streamflow-network
+
+  # =============================================================================
   # SPARK (Master + Worker) - Using official Apache Spark image
   # =============================================================================
   # Init container to set up volume permissions
@@ -139,7 +161,7 @@ services:
       - "8082:8080"
     environment:
       - AIRFLOW__CORE__EXECUTOR=LocalExecutor
-      - AIRFLOW__DATABASE__SQL_ALCHEMY_CONN=sqlite:////opt/airflow/airflow.db
+      - AIRFLOW__DATABASE__SQL_ALCHEMY_CONN=postgresql+psycopg2://airflow:airflow@postgres:5432/airflow
       - AIRFLOW__CORE__FERNET_KEY=your-fernet-key-here-replace-in-production
       - AIRFLOW__CORE__LOAD_EXAMPLES=false
       - AIRFLOW__WEBSERVER__SECRET_KEY=streamflow-secret-key
@@ -163,8 +185,37 @@ services:
     depends_on:
       kafka:
         condition: service_healthy
+      postgres:
+        condition: service_healthy
       spark-master:
         condition: service_started
+    networks:
+      - streamflow-network
+
+  # =============================================================================
+  # STREAMLIT (Frontend for Data Exploration)
+  # =============================================================================
+  streamlit:
+    build:
+      context: ./streamlit
+      dockerfile: Dockerfile
+    container_name: streamflow-streamlit
+    ports:
+      - "8501:8501"
+    environment:
+      - POSTGRES_HOST=postgres
+      - POSTGRES_PORT=5432
+      - POSTGRES_DB=airflow
+      - POSTGRES_USER=airflow
+      - POSTGRES_PASSWORD=airflow
+      - DATA_ROOT=/opt/spark-data
+    volumes:
+      - spark_data:/opt/spark-data:ro
+      - ./streamlit:/app
+    command: streamlit run app.py --server.address=0.0.0.0 --server.port=8501
+    depends_on:
+      postgres:
+        condition: service_healthy
     networks:
       - streamflow-network
 
@@ -179,6 +230,7 @@ volumes:
   zookeeper_data:
   zookeeper_logs:
   kafka_data:
+  postgres_data:
   airflow_data:
   airflow_logs:
   spark_data:
