@@ -111,6 +111,19 @@ services:
     networks:
       - streamflow-network
 
+  minio-init:
+    image: minio/mc:latest
+    container_name: streamflow-minio-init
+    depends_on:
+      - minio
+    entrypoint: >
+      /bin/sh -c "
+      mc alias set local http://minio:9000 minioadmin minioadmin &&
+      mc mb -p local/datalake || true
+      "
+    networks:
+      - streamflow-network
+
   # =============================================================================
   # SPARK (Master + Worker) - Using official Apache Spark image
   # =============================================================================
@@ -179,14 +192,22 @@ services:
       - "8082:8080"
     environment:
       - AIRFLOW__CORE__EXECUTOR=LocalExecutor
+      - AIRFLOW__CORE__PARALLELISM=4
+      - AIRFLOW__CORE__MAX_ACTIVE_TASKS_PER_DAG=4
+      - AIRFLOW__SCHEDULER__PARSING_PROCESSES=2
+      - AIRFLOW__WEBSERVER__WORKERS=2
       - AIRFLOW__DATABASE__SQL_ALCHEMY_CONN=postgresql+psycopg2://airflow:airflow@postgres:5432/airflow
-      - AIRFLOW__CORE__FERNET_KEY=your-fernet-key-here-replace-in-production
+      - AIRFLOW__CORE__FERNET_KEY=2VGiNvoB0qhlxDMs1EbozR5sVSIJc68BgUlnFLuz_zI=
       - AIRFLOW__CORE__LOAD_EXAMPLES=false
       - AIRFLOW__WEBSERVER__SECRET_KEY=streamflow-secret-key
       - _AIRFLOW_DB_MIGRATE=true
       - _AIRFLOW_WWW_USER_CREATE=true
       - _AIRFLOW_WWW_USER_USERNAME=admin
       - _AIRFLOW_WWW_USER_PASSWORD=admin
+      - S3_ENDPOINT=http://minio:9000
+      - S3_ACCESS_KEY=minioadmin
+      - S3_SECRET_KEY=minioadmin
+      - S3_REGION=us-east-1
     volumes:
       - ./dags:/opt/airflow/dags
       - ./scripts:/opt/airflow/scripts
@@ -194,7 +215,7 @@ services:
       - spark_data:/opt/spark-data
       - airflow_logs:/opt/airflow/logs
       - airflow_data:/opt/airflow
-    command: standalone
+    command: [ "bash", "-c", "airflow triggerer & airflow scheduler & exec airflow webserver" ]
     healthcheck:
       test: [ "CMD-SHELL", "curl -f http://localhost:8080/health || exit 1" ]
       interval: 30s
@@ -205,6 +226,10 @@ services:
         condition: service_healthy
       postgres:
         condition: service_healthy
+      minio:
+        condition: service_started
+      minio-init:
+        condition: service_completed_successfully
       spark-master:
         condition: service_started
     networks:
@@ -226,6 +251,10 @@ services:
       - POSTGRES_DB=airflow
       - POSTGRES_USER=airflow
       - POSTGRES_PASSWORD=airflow
+      - S3_ENDPOINT=http://minio:9000
+      - S3_ACCESS_KEY=minioadmin
+      - S3_SECRET_KEY=minioadmin
+      - S3_REGION=us-east-1
       - DATA_ROOT=/opt/spark-data
     volumes:
       - spark_data:/opt/spark-data:ro
@@ -234,6 +263,8 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      minio:
+        condition: service_started
     networks:
       - streamflow-network
 

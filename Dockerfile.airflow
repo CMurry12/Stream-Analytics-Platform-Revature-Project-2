@@ -25,7 +25,7 @@ ENV SPARK_HOME=/opt/spark
 ENV PATH="${PATH}:${SPARK_HOME}/bin"
 ENV JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64
 
-USER airflow
+USER root
 
-# Install Python dependencies for Kafka integration and Postgres connectivity
-RUN pip install --no-cache-dir kafka-python pyspark==3.5.0 snowflake-connector-python apache-airflow-providers-snowflake psycopg2-binary apache-airflow-providers-postgres
+# Install Python dependencies globally so they are available when container runs as root.
+RUN pip install --no-cache-dir kafka-python pyspark==3.5.0 snowflake-connector-python apache-airflow-providers-snowflake psycopg2-binary apache-airflow-providers-postgres boto3 yfinance
